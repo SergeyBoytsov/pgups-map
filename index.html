@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Интерактивная 3D-карта корпусов ПГУПС. Московский проспект, 9, Санкт-Петербург.">
+  <title>3D-карта корпусов ПГУПС</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: light-dark(#f8f7f1, #1b221f);
+      --foreground: light-dark(#24322b, #e9eee8);
+      --popover: light-dark(#ffffff, #2c3631);
+      --popover-foreground: var(--foreground);
+      --muted-foreground: light-dark(#536258, #b1c0b5);
+      --border: light-dark(#c9d0c8, #526158);
+      --accent: light-dark(#dfede4, #374d42);
+      --focus: light-dark(#1d694e, #90d7b6);
+      font: 16px/1.45 system-ui, sans-serif;
+      background: var(--background);
+      color: var(--foreground);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 880px; margin-inline: auto; padding: 20px 14px 24px; }
+    .pg-head { padding-inline: 4px; }
+    .pg-head h2 { font-size: clamp(1.45rem, 4vw, 2rem); line-height: 1.18; }
+    .text-small { font-size: .8125rem; }
+    .text-muted { color: var(--muted-foreground); }
+    .btn, .form-select {
+      min-height: 44px;
+      padding: 7px 12px;
+      color: inherit;
+      background: var(--popover);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: inherit;
+    }
+    .btn { min-width: 44px; cursor: pointer; }
+    .btn[aria-pressed="true"], .btn:hover { background: var(--accent); }
+    .btn i { font-size: 1.25rem; font-style: normal; line-height: 1; }
+    .form-label { font-size: .875rem; }
+    .form-select { font-size: 1rem; }
+    .cursor-interaction { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .pg-credit { margin: 14px 0 0; }
+  </style>
+</head>
+<body>
+  <main>
+<div id="pgups-campus">
+  <header class="pg-head">
+    <p class="text-small text-muted pg-eyebrow">Санкт-Петербург · Московский проспект, 9</p>
+    <h2>3D-карта корпусов ПГУПС</h2>
+  </header>
+
+  <div class="pg-stage" data-stage>
+    <canvas role="img" aria-label="Объёмная схема корпусов ПГУПС у реки Фонтанки и Московского проспекта"></canvas>
+    <div class="pg-pins" data-pins></div>
+  </div>
+
+  <div class="viz-controls pg-controls" aria-label="Управление картой">
+    <button type="button" class="btn" data-action="left" aria-label="Повернуть влево"><i aria-hidden="true">↶</i></button>
+    <button type="button" class="btn" data-action="right" aria-label="Повернуть вправо"><i aria-hidden="true">↷</i></button>
+    <button type="button" class="btn" data-action="out" aria-label="Отдалить"><i aria-hidden="true">−</i></button>
+    <button type="button" class="btn" data-action="in" aria-label="Приблизить"><i aria-hidden="true">+</i></button>
+    <button type="button" class="btn" data-action="top" aria-pressed="false">Вид сверху</button>
+  </div>
+  <p class="text-small text-muted pg-hint">
+    <span class="pg-mouse">Перетащите карту для поворота. Колесо меняет масштаб, Shift + перетаскивание сдвигает карту.</span>
+    <span class="pg-touch">Один палец вращает карту. Два пальца меняют масштаб и сдвигают карту.</span>
+  </p>
+
+  <div class="pg-selection">
+    <label class="form-label">Выбрать корпус
+      <select class="form-select" data-select>
+        <option value="">Все корпуса</option>
+      </select>
+    </label>
+    <div data-detail aria-live="polite" aria-atomic="true">Нажмите на номер корпуса на карте.</div>
+  </div>
+  <span class="pg-swatches" aria-hidden="true"></span>
+</div>
+
+<style>
+  #pgups-campus {
+    --pg-ground: light-dark(#e9e4d8,#2c342f);
+    --pg-edge: light-dark(#a69d8c,#151d1b);
+    --pg-road: light-dark(#d3d0c6,#384342);
+    --pg-roadline: light-dark(#f9f7ee,#53615e);
+    --pg-water: light-dark(#a7d4d9,#28565f);
+    --pg-ripple: light-dark(#d1edf0,#3b7680);
+    --pg-lawn: light-dark(#b6c9a4,#476251);
+    --pg-lawn-edge: light-dark(#9cae8b,#61806a);
+    --pg-tree: light-dark(#648e68,#6d9b76);
+    --pg-tree-light: light-dark(#90ad80,#91b086);
+    --pg-roof: light-dark(#d8bd98,#8c6e54);
+    --pg-palace: light-dark(#cfab81,#96724f);
+    --pg-wall: light-dark(#bd9774,#86674f);
+    --pg-wall-dark: light-dark(#9e7b61,#634d3e);
+    --pg-window: light-dark(#755f51,#48362e);
+    --pg-seam: light-dark(#a18168,#544033);
+    --pg-active: light-dark(#8cd3bd,#75cfb7);
+    --pg-active-wall: light-dark(#529e8a,#448d7d);
+    --pg-active-dark: light-dark(#397a6c,#316c60);
+    --pg-ink: light-dark(#25362f,#e0e8dc);
+    --pg-leader: light-dark(#5e6659,#c1c9b5);
+    --pg-entry: light-dark(#97500f,#f6bd75);
+    color-scheme: light dark;
+  }
+  #pgups-campus .pg-eyebrow { margin: 0 0 4px; }
+  #pgups-campus h2 { margin: 0; }
+  #pgups-campus .pg-stage {
+    height: clamp(258px, 60vw, 442px);
+    position: relative;
+    touch-action: none;
+    overflow: hidden;
+    isolation: isolate;
+    cursor: grab;
+    user-select: none;
+  }
+  #pgups-campus .pg-stage.pg-dragging { cursor: grabbing; }
+  #pgups-campus canvas, #pgups-campus .pg-pins { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #pgups-campus .pg-pins { pointer-events: none; }
+  #pgups-campus .pg-pin {
+    position: absolute;
+    left: 0;
+    top: 0;
+    translate: -50% -50%;
+    display: grid;
+    place-items: center;
+    pointer-events: auto;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--pg-leader) 66%, transparent);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--pg-edge) 45%, transparent);
+    touch-action: none;
+  }
+  #pgups-campus .pg-pin[aria-pressed="true"] {
+    background: var(--pg-active);
+    color: light-dark(#14332b,#112b24);
+    border-color: var(--pg-active-dark);
+  }
+  #pgups-campus .pg-pin:hover { border-color: var(--pg-active-dark); }
+  #pgups-campus .pg-pin[hidden] { display: none; }
+  #pgups-campus .pg-controls { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
+  #pgups-campus .pg-hint { text-align: center; margin: 8px 0 14px; }
+  #pgups-campus .pg-touch { display: none; }
+  #pgups-campus .pg-selection {
+    display: grid;
+    grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  #pgups-campus .pg-selection label { margin: 0; }
+  #pgups-campus .pg-selection select { display: block; width: 100%; margin-top: 4px; }
+  #pgups-campus [data-detail] { align-self: center; overflow-wrap: anywhere; }
+  #pgups-campus [data-detail] p { margin: 0; }
+  #pgups-campus [data-detail] p + p { margin-top: 4px; }
+  #pgups-campus .pg-swatches { display: none; }
+  @media (max-width: 480px) {
+    #pgups-campus .pg-selection { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    #pgups-campus .pg-pin { width: 26px; height: 26px; }
+  }
+  @media (pointer: coarse) {
+    #pgups-campus .pg-mouse { display: none; }
+    #pgups-campus .pg-touch { display: inline; }
+    #pgups-campus .pg-pin::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
+  }
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('pgups-campus');
+  const stage = root.querySelector('[data-stage]');
+  const pinLayer = root.querySelector('[data-pins]');
+  const selection = root.querySelector('[data-select]');
+  const detail = root.querySelector('[data-detail]');
+  const canvas = root.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const topButton = root.querySelector('[data-action="top"]');
+
+  const directory = {
+    1: {entries: [['ТС', 'Транспортное строительство', '1-310']], note: 'Вход с Московского проспекта у корпуса № 1.'},
+    2: {entries: [['ПГС', 'Промышленное и гражданское строительство', '2-219']]},
+    4: {entries: [['ТЭС', 'Транспортные и энергетические системы', '4-205']]},
+    7: {entries: [
+      ['ФБФО', 'Факультет безотрывных форм обучения', '7-524'],
+      ['УПЛ', 'Управление перевозками и логистика', '7-326'],
+      ['АИТ', 'Автоматизация и интеллектуальные технологии', '7-420'],
+      ['ФДП', 'Факультет довузовской подготовки', '7-303']
+    ], note: 'Вход с Московского проспекта у корпуса № 7.'},
+    8: {note: 'На плане три секции с номером 8.'},
+    9: {name: 'Юсуповский дворец', entries: [['ЭиМ', 'Экономика и менеджмент', '9-124']]}
+  };
+
+  // План кампуса в координатах перерисованной схемы. Третья координата задаёт условную высоту.
+  const outline = value => value.trim().split(/\s+/).map(pair => pair.split(',').map(Number));
+  const footprints = [
+    [1, 66, [1051, 657], '928,706 928,628 975,628 975,621 1032,621 1032,628 1166,628 1166,705 1149,705 1149,696 1093,696 1093,705 1008,705 1008,696 953,696 953,706'],
+    [2, 64, [1016, 497], '929,473 986,473 986,466 1004,466 1004,473 1129,473 1129,529 1166,529 1166,628 1117,628 1117,527 929,527'],
+    [3, 61, [769, 462], '707,387 808,387 808,373 849,373 849,435 842,435 842,521 726,521 710,472 729,472 729,453 707,453'],
+    [4, 58, [957, 312], '848,278 869,278 869,284 906,284 906,277 922,277 922,284 995,284 995,277 1011,277 1011,284 1045,284 1045,277 1063,277 1063,345 1045,345 1045,338 1012,338 1012,345 999,345 999,338 967,338 967,345 953,345 953,338 921,338 921,345 908,345 908,338 870,338 870,345 848,345'],
+    [5, 50, [1105, 373], '1076,302 1135,302 1135,449 1076,449 1076,369 1069,369 1069,349 1076,349'],
+    [6, 60, [965, 138], '712,223 744,203 740,195 807,153 824,182 844,168 840,159 929,103 926,96 956,78 962,90 1035,50 1085,137 1067,148 1063,139 1040,149 1030,125 1014,134 1045,185 1044,192 1033,194 1030,186 968,222 948,187 886,226 870,200 845,215 850,224 820,245 820,279 807,279 807,255 784,269 777,258 741,278'],
+    [7, 59, [464, 623], '188,513 234,487 245,500 298,509 341,521 384,540 394,532 429,554 419,567 479,606 533,588 552,653 560,653 560,661 585,661 585,588 650,568 680,673 694,673 694,711 514,711 490,686 469,667 445,647 420,630 395,615 367,601 340,589 313,579 287,571 260,564 236,559 211,558'],
+    [8, 51, [542, 359], '414,390 465,371 470,382 516,367 520,362 515,350 643,306 823,302 823,354 717,354 717,340 688,340 688,354 665,354 658,336 586,359 580,347 573,350 581,380 424,425'],
+    [8, 48, [482, 491], '427,435 483,420 495,466 499,468 506,485 502,491 526,589 480,604 468,569 478,566 474,553 462,556'],
+    [8, 48, [583, 484], '525,408 581,390 627,558 572,578 547,480 541,478 536,461 539,456'],
+    [9, 63, [266, 190], '18,121 208,12 243,66 252,61 290,126 312,114 323,131 316,135 341,177 350,172 359,184 340,197 356,222 367,215 384,244 375,250 415,311 513,241 547,291 423,376 419,372 407,379 380,338 352,358 326,373 298,385 269,394 240,400 215,402 191,401 169,395 207,475 181,490 104,324 112,320 133,339 157,357 182,369 210,378 235,378 260,374 285,366 308,354 331,340 323,331 347,312 334,295 314,309 178,108 202,90 190,73 164,89 156,77 137,91 117,109 102,130 89,152 81,176 78,202 79,228 84,253 95,285 90,290'],
+    [10, 67, [691, 525], '620,359 664,343 760,674 723,674 719,660 707,660'],
+    [11, 41, [1154, 196], '1136,161 1170,161 1170,172 1177,172 1177,183 1171,183 1171,217 1177,217 1177,229 1131,229 1131,217 1136,217 1136,183 1130,183 1130,172 1136,172']
+  ];
+  const auxiliary = [
+    [0, 25, null, '249,453 341,399 354,426 337,436 347,448 327,459 318,447 262,478'],
+    [0, 25, null, '342,400 357,393 371,419 357,428'],
+    [0, 22, null, '843,473 913,473 913,526 843,526'],
+    [0, 42, null, '937,527 976,527 976,608 937,608'],
+    [0, 36, null, '860,528 904,528 904,629 913,629 913,706 894,706 894,697 846,697 846,674 860,674'],
+    [0, 32, null, '780,559 791,559 791,551 810,551 810,559 825,559 825,674 833,674 833,697 775,697 775,673 781,673 781,644 776,644 776,622 780,622'],
+    [0, 25, null, '725,551 763,551 763,616 744,616'],
+    [0, 23, null, '709,674 763,674 763,711 709,711'],
+    [0, 24, null, '1167,629 1185,629 1185,705 1167,705'],
+    [0, 23, null, '807,279 822,279 822,301 807,301'],
+    [0, 24, null, '824,299 848,299 848,315 824,315']
+  ];
+
+  const plots = [
+    '224,595 263,603 303,616 345,633 386,654 421,678 458,708 274,708',
+    '116,313 143,330 174,346 207,356 203,375 178,368 150,354 126,336 111,322',
+    '242,355 273,350 300,341 323,329 331,340 306,354 277,366 242,374',
+    '79,193 100,195 102,226 106,250 113,278 101,284 93,265 85,242 81,217',
+    '92,152 105,132 119,111 134,125 118,145 105,164',
+    '122,107 139,91 154,80 165,94 143,115 135,119',
+    '132,164 151,140 174,124 186,117 198,139 174,148 150,157',
+    '250,332 266,307 282,275 298,303 312,322 287,332 269,334',
+    '996,538 1101,538 1101,609 996,609'
+  ].map(outline);
+  const trees = [[89,219,12],[93,247,11],[102,263,9],[128,134,11],[141,107,9],[166,148,11],
+    [149,343,12],[173,357,12],[198,364,10],[251,364,11],[275,359,12],[300,347,11],
+    [279,307,11],[288,320,10],[129,233,12],[160,210,15],[186,218,13],[204,240,12],
+    [159,252,16],[185,263,13],[146,272,10],[260,622,10],[284,630,12],[309,638,13],
+    [333,649,10],[355,659,13],[382,677,11],[416,693,12],
+    [1008,551,10],[1008,594,10],[1089,551,9],[1089,594,10]];
+
+  const deck = [[5,-13],[1200,-13],[1200,765],[5,765]];
+  const water = [[5,280],[24,280],[219,765],[5,765]];
+  const road = [[217,719],[1200,719],[1200,765],[217,765]];
+  const oval = (x, y, rx, ry, n = 32) => Array.from({length: n}, (_, i) => {
+    const a = i * 2 * Math.PI / n;
+    return [x + rx * Math.cos(a), y + ry * Math.sin(a)];
+  });
+  const garden = oval(180,252,54,54);
+  const track = [[902,365],[1017,365],[1029,370],[1040,382],[1045,395],[1045,416],
+    [1038,432],[1027,441],[1014,445],[901,445],[888,439],[880,430],[876,416],[876,395],[881,382],[890,372]];
+  const fountain = oval(1072,572,14,15,12);
+
+  const solids = [...footprints, ...auxiliary].map(([id, height, anchor, points]) => ({
+    id, height, anchor, points: outline(points)
+  }));
+  const counters = new Map();
+  const pins = solids.filter(solid => solid.anchor).map(solid => {
+    const index = (counters.get(solid.id) || 0) + 1;
+    counters.set(solid.id, index);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pg-pin cursor-interaction';
+    button.textContent = solid.id;
+    const label = 'Корпус № ' + solid.id + (solid.id === 8 ? ', секция ' + index : '');
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-pressed', 'false');
+    button.addEventListener('click', event => {
+      if (suppressPinClick && event.detail !== 0) return;
+      choose(selected === solid.id ? 0 : solid.id);
+    });
+    pinLayer.append(button);
+    return {solid, button};
+  });
+  for (let id = 1; id <= 11; id++) {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = 'Корпус № ' + id;
+    selection.append(option);
+  }
+
+  let selected = 0;
+  function choose(id) {
+    selected = id;
+    selection.value = id || '';
+    pins.forEach(({solid, button}) => button.setAttribute('aria-pressed', String(solid.id === id)));
+    detail.replaceChildren();
+    if (!id) {
+      detail.textContent = 'Нажмите на номер корпуса на карте.';
+    } else {
+      const info = directory[id] || {};
+      const heading = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = 'Корпус № ' + id + (info.name ? ' · ' + info.name : '');
+      heading.append(strong);
+      detail.append(heading);
+      for (const [short, name, room] of info.entries || []) {
+        const p = document.createElement('p');
+        p.textContent = short + ' · «' + name + '» · ауд. ' + room;
+        detail.append(p);
+      }
+      const note = info.note || (!info.entries && 'Факультет на исходной схеме не указан.');
+      if (note) {
+        const p = document.createElement('p');
+        p.className = 'text-small';
+        p.textContent = note;
+        detail.append(p);
+      }
+    }
+    schedule();
+  }
+  selection.addEventListener('change', () => choose(Number(selection.value)));
+
+  // BSP сортирует стены и крыши в зависимости от направления камеры.
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const atHeight = (points, z) => points.map(([x,y]) => [x,y,z]);
+  const area = points => points.reduce((sum, a, i) => {
+    const b = points[(i + 1) % points.length];
+    return sum + a[0] * b[1] - a[1] * b[0];
+  }, 0);
+  const faces = solids.flatMap(solid => {
+    const {points, height} = solid;
+    const boundary = area(points) > 0 ? points : [...points].reverse();
+    const roof = {solid, vertices: atHeight(boundary, height), normal: [0,0,1], plane: height, roof: true};
+    const walls = boundary.map((a, i) => {
+      const b = boundary[(i + 1) % boundary.length];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const length = Math.hypot(dx,dy);
+      const normal = [dy / length, -dx / length, 0];
+      return {
+        solid, normal, plane: dot(normal, [...a,0]), start: a, end: b, length,
+        vertices: [[...a,0],[...b,0],[...b,height],[...a,height]]
+      };
+    });
+    return [roof, ...walls];
+  });
+
+  const epsilon = 0.0001;
+  function partition(list) {
+    if (!list.length) return null;
+    let best = list[0], bestScore = Infinity;
+    const step = Math.max(1, Math.floor(list.length / 12));
+    for (let i = 0; i < list.length; i += step) {
+      const pivot = list[i];
+      let positive = 0, negative = 0, crossed = 0;
+      for (const face of list) {
+        let front = false, back = false;
+        for (const vertex of face.vertices) {
+          const d = dot(pivot.normal, vertex) - pivot.plane;
+          front ||= d > epsilon;
+          back ||= d < -epsilon;
+        }
+        if (front && back) crossed++;
+        else if (front) positive++;
+        else if (back) negative++;
+      }
+      const score = 7 * crossed + Math.abs(positive - negative);
+      if (score < bestScore) { best = pivot; bestScore = score; }
+    }
+    const forward = [], backward = [], coplanar = [];
+    for (const face of list) {
+      const ds = face.vertices.map(v => dot(best.normal,v) - best.plane);
+      const front = ds.some(d => d > epsilon);
+      const back = ds.some(d => d < -epsilon);
+      if (!front && !back) coplanar.push(face);
+      else if (!back) forward.push(face);
+      else if (!front) backward.push(face);
+      else {
+        const a = [], b = [];
+        face.vertices.forEach((v, i) => {
+          const next = (i + 1) % ds.length;
+          const d = ds[i], e = ds[next];
+          if (d >= -epsilon) a.push(v);
+          if (d <= epsilon) b.push(v);
+          if ((d > epsilon && e < -epsilon) || (d < -epsilon && e > epsilon)) {
+            const t = d / (d - e);
+            const w = v.map((value, j) => value + t * (face.vertices[next][j] - value));
+            a.push(w);
+            b.push(w);
+          }
+        });
+        forward.push({...face, vertices: a});
+        backward.push({...face, vertices: b});
+      }
+    }
+    return {normal: best.normal, coplanar, forward: partition(forward), backward: partition(backward)};
+  }
+  const model = partition(faces);
+
+  const paletteNames = ['ground','edge','road','roadline','water','ripple','lawn','lawn-edge','tree',
+    'tree-light','roof','palace','wall','wall-dark','window','seam','active','active-wall',
+    'active-dark','ink','leader','entry'];
+  const swatches = root.querySelector('.pg-swatches');
+  const samples = paletteNames.map(name => {
+    const sample = document.createElement('span');
+    sample.style.color = 'var(--pg-' + name + ')';
+    swatches.append(sample);
+    return [name, sample];
+  });
+  let colors = {};
+  const readPalette = () => {
+    colors = Object.fromEntries(samples.map(([name, sample]) => [name, getComputedStyle(sample).color]));
+  };
+
+  const initial = {angle: -.18, tilt: .86, zoom: 1, panX: 0, panY: 0};
+  let camera = {...initial};
+  let savedOrbit = null;
+  let project;
+  let hitFaces = [];
+  let frame = 0;
+  let cssWidth = 0, cssHeight = 0, pixelRatio = 1;
+
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(draw);
+  }
+  function resize() {
+    cssWidth = stage.clientWidth;
+    cssHeight = stage.clientHeight;
+    if (!cssWidth || !cssHeight) return;
+    pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(cssWidth * pixelRatio);
+    canvas.height = Math.round(cssHeight * pixelRatio);
+    readPalette();
+    schedule();
+  }
+
+  const path = (points, closed = true) => {
+    ctx.beginPath();
+    ctx.moveTo(...points[0]);
+    points.slice(1).forEach(p => ctx.lineTo(...p));
+    if (closed) ctx.closePath();
+  };
+  function polygon(points, fill, stroke, width = 1) {
+    path(points);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+  }
+  const ground = (points, fill, stroke, width) => polygon(points.map(p => project(p)), fill, stroke, width);
+  function line(points, color, width = 1) {
+    path(points, false);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  }
+
+  function drawGround(scale, tilt) {
+    const slab = deck.map(p => project(p));
+    ctx.save();
+    ctx.shadowColor = colors.edge;
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 6;
+    ctx.globalAlpha = .24;
+    polygon(slab, colors.edge);
+    ctx.restore();
+    const bottom = deck.map(([x,y]) => project([x,y,-13]));
+    for (let i = 0; i < slab.length; i++) {
+      const next = (i + 1) % slab.length;
+      polygon([slab[i],slab[next],bottom[next],bottom[i]], colors.edge);
+    }
+    ground(deck, colors.ground, colors.edge, .65);
+    ground(water, colors.water);
+    for (let y = 358; y < 765; y += 29) {
+      const right = 24 + (y - 280) * 195 / 485;
+      for (let x = 18 + (y % 4) * 8; x + 19 < right; x += 44) {
+        line([project([x,y]), project([x+19,y])], colors.ripple, .8);
+      }
+    }
+    line([project([24,280]), project([219,765])], colors.edge, 1.1);
+
+    ground(road, colors.road);
+    line([project([217,719]),project([1200,719])], colors.roadline, 1.1);
+    ctx.setLineDash([8,7]);
+    line([project([253,755]),project([1190,755])], colors.roadline, .9);
+    ctx.setLineDash([]);
+    plots.forEach(p => ground(p, colors.lawn, colors['lawn-edge'], .65));
+    ground(garden, colors.lawn, colors['lawn-edge'], .65);
+    ground(track, colors.lawn, colors['lawn-edge'], .8);
+    ground(outline('892,382 899,382 899,428 892,428'), colors.roadline, colors['lawn-edge'], .6);
+    ground(fountain, colors.water, colors['lawn-edge'], 1);
+    ground(oval(1072,572,5,5,12), colors.ripple);
+    for (const [x,y,r] of trees) {
+      const a = project([x,y,0]), b = project([x,y,8]);
+      const radius = Math.max(1.5, r * scale * .74);
+      ctx.beginPath();
+      ctx.ellipse(a[0]+radius*.22,a[1]+radius*.2,radius*1.04,radius*.7,0,0,Math.PI*2);
+      ctx.fillStyle = colors['lawn-edge'];
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(b[0],b[1],radius,radius * (.73 + .21 * Math.sin(tilt)),0,0,Math.PI*2);
+      ctx.fillStyle = colors.tree;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(b[0]-radius*.17,b[1]-radius*.21,radius*.65,radius*.48,0,0,Math.PI*2);
+      ctx.fillStyle = colors['tree-light'];
+      ctx.fill();
+    }
+  }
+
+  function wallWindows(face, screen, scale, active) {
+    if (scale < .19 || face.length < 31 || face.solid.height < 34) return;
+    const {start, end, length, solid} = face;
+    const count = Math.floor((length - 12) / 21);
+    const mix = (d, z) => project([
+      start[0] + (end[0] - start[0]) * d / length,
+      start[1] + (end[1] - start[1]) * d / length, z
+    ]);
+    ctx.save();
+    path(screen);
+    ctx.clip();
+    ctx.globalAlpha = .52;
+    for (let i = 0; i < count; i++) {
+      const x = length * (i + 1) / (count + 1);
+      for (let z = 15; z + 7 < solid.height - 4; z += 15) {
+        polygon([mix(x-3,z), mix(x+3,z), mix(x+3,z+7), mix(x-3,z+7)], active ? colors['active-dark'] : colors.window);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawModel(node, eye, scale) {
+    if (!node) return;
+    const forward = dot(node.normal, eye) >= 0;
+    drawModel(forward ? node.backward : node.forward, eye, scale);
+    for (const face of node.coplanar) {
+      if (dot(face.normal, eye) <= epsilon) continue;
+      const screen = face.vertices.map(project);
+      const active = selected !== 0 && selected === face.solid.id;
+      const darkSide = dot(face.normal, [-.6,-.8,0]) < 0;
+      const fill = face.roof
+        ? active ? colors.active : face.solid.id === 9 ? colors.palace : colors.roof
+        : active ? colors[darkSide ? 'active-dark' : 'active-wall'] : colors[darkSide ? 'wall-dark' : 'wall'];
+      // An invisible narrow same-color stroke closes subpixel seams between split faces.
+      polygon(screen, fill, fill, .65);
+      if (!face.roof) wallWindows(face, screen, scale, active);
+      if (face.roof) {
+        const solid = face.solid;
+        ctx.save();
+        path(screen);
+        ctx.clip();
+        path(atHeight(solid.points, solid.height).map(project));
+        ctx.strokeStyle = active ? colors['active-dark'] : colors.seam;
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
+        ctx.restore();
+      }
+      hitFaces.push({id: face.solid.id, screen});
+    }
+    drawModel(forward ? node.forward : node.backward, eye, scale);
+  }
+
+  function placePins(width, height, coarse) {
+    const radius = coarse ? 22 : 15;
+    const spacing = coarse ? 45 : 31;
+    const markers = pins.map(pin => {
+      const a = project([...pin.solid.anchor, pin.solid.height]);
+      return {...pin, a, x:a[0], y:a[1] - 7};
+    });
+    const visible = markers.filter(({a}) => a[0] > -8 && a[0] < width + 8 && a[1] > -8 && a[1] < height + 8);
+    for (const m of markers) m.button.hidden = !visible.includes(m);
+    for (let pass = 0; pass < 85; pass++) {
+      for (const m of visible) {
+        m.x += (m.a[0] - m.x) * .045;
+        m.y += (m.a[1] - 7 - m.y) * .045;
+      }
+      for (let i = 0; i < visible.length; i++) {
+        for (let j = i + 1; j < visible.length; j++) {
+          const a = visible[i], b = visible[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const d = Math.hypot(dx,dy);
+          if (d >= spacing) continue;
+          const push = (spacing - d) * .52;
+          const ux = d > .001 ? dx / d : 1, uy = d > .001 ? dy / d : 0;
+          a.x -= ux * push;
+          a.y -= uy * push;
+          b.x += ux * push;
+          b.y += uy * push;
+        }
+      }
+      for (const m of visible) {
+        m.x = clamp(m.x, radius, width-radius);
+        m.y = clamp(m.y, radius, height-radius);
+      }
+    }
+    for (const m of visible) {
+      line([m.a, [m.x,m.y]], colors.leader, .85);
+      m.button.style.transform = 'translate(' + m.x + 'px,' + m.y + 'px)';
+    }
+  }
+
+  function landmarks(width) {
+    const label = (text, point, rotation, color = colors.ink) => {
+      const p = project(point);
+      ctx.save();
+      ctx.translate(...p);
+      ctx.rotate(rotation);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = (width < 440 ? '11' : '12') + 'px system-ui, sans-serif';
+      ctx.fillStyle = color;
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    };
+    const axisAngle = (from, to) => {
+      const a = project(from), b = project(to);
+      const angle = Math.atan2(b[1]-a[1], b[0]-a[0]);
+      return angle > Math.PI/2 || angle < -Math.PI/2 ? angle + Math.PI : angle;
+    };
+    const roadAngle = axisAngle([200,742],[1200,742]);
+    const riverAngle = axisAngle([55,491],[115,647]);
+    label('Московский проспект', [718,739,1], roadAngle);
+    label(width < 440 ? 'Фонтанка' : 'река Фонтанка', [80,619,1], riverAngle);
+    for (const [tip, tail] of [[[379,610],[351,642]], [[1056,708],[1056,743]]]) {
+      const a = project(tip), b = project(tail);
+      const angle = Math.atan2(b[1]-a[1], b[0]-a[0]);
+      line([b,a], colors.entry, 1.8);
+      polygon([a, [a[0]+7*Math.cos(angle-.5),a[1]+7*Math.sin(angle-.5)],
+        [a[0]+7*Math.cos(angle+.5),a[1]+7*Math.sin(angle+.5)]], colors.entry);
+      const offset = width < 440 && tail[0] < 500 ? -43 : width < 440 ? 68 : 50;
+      const textPoint = [tail[0]+offset,tail[1],1];
+      label('Вход', textPoint, roadAngle, colors.entry);
+    }
+  }
+
+  function draw() {
+    frame = 0;
+    const w = cssWidth, h = cssHeight;
+    if (!w || !h || !ctx) return;
+    ctx.setTransform(pixelRatio,0,0,pixelRatio,0,0);
+    ctx.clearRect(0,0,w,h);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const {angle, tilt, zoom, panX, panY} = camera;
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+    const ct = Math.cos(tilt), st = Math.sin(tilt);
+    const view = ([x,y,z=0]) => [x * ca - y * sa, (x * sa + y * ca) * st - z * ct];
+    const bounds = [...deck.map(view), ...solids.flatMap(({height, points}) => atHeight(points,height).map(view))];
+    const xs = bounds.map(p => p[0]), ys = bounds.map(p => p[1]);
+    const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
+    const scale = Math.min((w-30)/(right-left), (h-36)/(bottom-top)) * zoom;
+    const ox = w/2 - (left+right)*scale/2 + panX;
+    const oy = h/2 - (top+bottom)*scale/2 + panY - 4;
+    project = p => {
+      const [x,y] = view(p);
+      return [ox+x*scale,oy+y*scale];
+    };
+    hitFaces = [];
+    drawGround(scale, tilt);
+    drawModel(model, [sa*ct,ca*ct,st], scale);
+    landmarks(w);
+    placePins(w,h,matchMedia('(pointer: coarse)').matches);
+  }
+
+  const clamp = (n, a, b) => Math.max(a,Math.min(b,n));
+  function setTop(enable) {
+    if (enable) {
+      savedOrbit = {...camera};
+      camera = {...initial, angle:0, tilt:Math.PI/2};
+    } else {
+      Object.assign(camera, savedOrbit || initial);
+      savedOrbit = null;
+    }
+    topButton.textContent = enable ? 'Вид 3D' : 'Вид сверху';
+    topButton.setAttribute('aria-pressed', String(enable));
+    schedule();
+  }
+  function zoomBy(factor) {
+    camera.zoom = clamp(camera.zoom * factor, .75, 3.5);
+    schedule();
+  }
+
+  root.querySelector('.pg-controls').addEventListener('click', event => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const action = button.dataset.action;
+    if (action === 'top') setTop(!savedOrbit);
+    if (action === 'in') zoomBy(1.25);
+    if (action === 'out') zoomBy(1 / 1.25);
+    if (action === 'left' || action === 'right') {
+      if (savedOrbit) setTop(false);
+      camera.angle += action === 'left' ? -.35 : .35;
+      schedule();
+    }
+  });
+
+  const pointers = new Map();
+  let pointerStart = null, dragged = false, suppressPinClick = false;
+  const point = e => ({x:e.clientX, y:e.clientY});
+  const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
+  function pan(dx, dy) {
+    camera.panX = clamp(camera.panX+dx,-cssWidth*.9,cssWidth*.9);
+    camera.panY = clamp(camera.panY+dy,-cssHeight*.9,cssHeight*.9);
+  }
+  stage.addEventListener('pointerdown', event => {
+    if (event.button !== 0 && event.button !== 1) return;
+    if (!pointers.size) {
+      pointerStart = point(event);
+      dragged = false;
+      suppressPinClick = false;
+    }
+    pointers.set(event.pointerId, point(event));
+    // Keep the original target so a tap on a number still activates its button.
+    event.target.setPointerCapture(event.pointerId);
+    if (pointers.size > 1) dragged = true;
+  });
+  stage.addEventListener('pointermove', event => {
+    const old = pointers.get(event.pointerId);
+    if (!old) return;
+    const current = point(event);
+    const other = [...pointers.entries()].find(([id]) => id !== event.pointerId)?.[1];
+    const dx = current.x-old.x, dy = current.y-old.y;
+    pointers.set(event.pointerId,current);
+    if (!dragged && distance(current,pointerStart) < 5) return;
+    dragged = true;
+    stage.classList.add('pg-dragging');
+    if (other) {
+      const prior = distance(old,other);
+      if (prior > 2) zoomBy(distance(current,other)/prior);
+      pan(dx/2,dy/2);
+    } else if (event.shiftKey || event.buttons === 4) {
+      pan(dx,dy);
+    } else {
+      if (savedOrbit) setTop(false);
+      camera.angle += dx * .009;
+      camera.tilt = clamp(camera.tilt + dy * .007,.36,1.36);
+    }
+    schedule();
+  });
+  function endPointer(event) {
+    if (!pointers.delete(event.pointerId)) return;
+    if (pointers.size) return;
+    stage.classList.remove('pg-dragging');
+    if (dragged) {
+      suppressPinClick = true;
+    } else if (event.type === 'pointerup' && !event.target.closest('.pg-pin')) {
+      const r = stage.getBoundingClientRect();
+      const x = event.clientX-r.left, y = event.clientY-r.top;
+      const hit = [...hitFaces].reverse().find(({screen}) => {
+        let inside = false;
+        for (let i=0,j=screen.length-1;i<screen.length;j=i++) {
+          const [xi,yi] = screen[i], [xj,yj] = screen[j];
+          if ((yi > y) !== (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) inside = !inside;
+        }
+        return inside;
+      });
+      if (hit?.id) choose(selected === hit.id ? 0 : hit.id);
+    }
+  }
+  stage.addEventListener('pointerup',endPointer);
+  stage.addEventListener('pointercancel',endPointer);
+  stage.addEventListener('lostpointercapture',endPointer);
+  stage.addEventListener('wheel', event => {
+    event.preventDefault();
+    const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? cssHeight : 1;
+    zoomBy(Math.exp(clamp(-event.deltaY*units*.0015,-.4,.4)));
+  }, {passive:false});
+
+  new ResizeObserver(resize).observe(stage);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readPalette(); schedule(); });
+  resize();
+})();
+</script>
+    <p class="pg-credit text-small text-muted">Контуры корпусов перенесены с плана кампуса. Высота зданий условная.</p>
+    <noscript>Для поворота карты и выбора корпуса включите JavaScript в браузере.</noscript>
+  </main>
+</body>
+</html>
